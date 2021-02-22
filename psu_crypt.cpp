@@ -130,11 +130,10 @@ enc_key key = { .u8 = { 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01, 0xef, 0xcd,
                         0xab } };
 
 int main(int argc, char **argv);
-f_round F(uint16_t r_0, uint16_t r_1,
-                                       uint16_t round_num);
+f_round F(uint16_t r_0, uint16_t r_1, uint16_t round_num);
 uint16_t G(uint16_t w, uint8_t k_0, uint8_t k_1, uint8_t k_2, uint8_t k_3);
 struct whiten *whitened(uint64_t, uint64_t);
-f_round F(uint16_t r_0, uint16_t r_1, uint16_t round_num)
+f_round F(uint16_t r_0, uint16_t r_1, int round_num)
 {
         f_round ret;
         //12 keys lookup from ftable
@@ -202,35 +201,35 @@ void generate_table()
         }
 }
 
-enc_block encrypt_block(enc_block block)
+enc_block round(enc_block block, int round_num)
 {
-        block = whitened(block, key);
-        cout << "Whitened block: " << block << endl;
-        for (uint16_t round_num = 0; round_num < 20; round_num++) {
-                if (round_num > 0)
-                        cout << "\n";
-                cout << "Round " << std::dec << round_num << endl;
-                cout << "Keys:";
-                for (int i = 0; i < 12; i++) {
-                        cout << " " << std::hex << std::setw(2)
-                             << std::setfill('0') << (int)subkeys[round_num][i];
-                }
-                cout << endl;
-
-                f_round fr;
-                fr = F(block.u16[0], block.u16[1], round_num);
-
-                uint16_t r0, r1, r2, r3;
-                r0 = block.u16[0];
-                r1 = block.u16[1];
-                r2 = block.u16[2];
-                r3 = block.u16[3];
-                block.u16[0] = r2 ^ (fr.u8[1] | (fr.u8[0] << 8));
-                block.u16[1] = r3 ^ (fr.u8[3] | (fr.u8[2] << 8));
-                block.u16[2] = r0;
-                block.u16[3] = r1;
-                cout << "Block: " << block << endl;
+        if (round_num > 0)
+                cout << "\n";
+        cout << "Round " << std::dec << round_num << endl;
+        cout << "Keys:";
+        for (int i = 0; i < 12; i++) {
+                cout << " " << std::hex << std::setw(2) << std::setfill('0')
+                     << (int)subkeys[round_num][i];
         }
+        cout << endl;
+
+        f_round fr;
+        fr = F(block.u16[0], block.u16[1], round_num);
+
+        uint16_t r0, r1, r2, r3;
+        r0 = block.u16[0];
+        r1 = block.u16[1];
+        r2 = block.u16[2];
+        r3 = block.u16[3];
+        block.u16[0] = r2 ^ (fr.u8[1] | (fr.u8[0] << 8));
+        block.u16[1] = r3 ^ (fr.u8[3] | (fr.u8[2] << 8));
+        block.u16[2] = r0;
+        block.u16[3] = r1;
+        cout << "Block: " << block << endl;
+        return block;
+}
+enc_block finalize(enc_block block)
+{
         enc_block cipher;
         cipher.u16[0] = block.u16[2];
         cipher.u16[1] = block.u16[3];
@@ -240,11 +239,30 @@ enc_block encrypt_block(enc_block block)
         cout << "Ciphertext: " << cipher << endl;
         return cipher;
 }
+enc_block encrypt_block(enc_block block)
+{
+        block = whitened(block, key);
+        cout << "Whitened block: " << block << endl;
+        for (int round_num = 0; round_num < 20; round_num++) {
+                block = round(block, round_num);
+        }
+        return finalize(block);
+}
 
+enc_block decrypt_block(enc_block block)
+{
+  block = whitened(block, key);
+  cout << "Whitened block: " << block << endl;
+  for (int round_num = 19; round_num >= 0; round_num--) {
+    block = round(block, round_num);
+  }
+  return finalize(block);
+}
 int main(int argc, char **argv)
 {
         enc_block text = { .u8 = { 0x73, 0x65, 0x63, 0x75, 0x72, 0x69, 0x74,
                                    0x79 } };
         generate_table();
         enc_block ciphertext = encrypt_block(text);
+        enc_block plaintext = decrypt_block(ciphertext);
 }
