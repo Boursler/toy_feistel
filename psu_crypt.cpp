@@ -132,7 +132,7 @@ enc_key key = { .u8 = { 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01, 0xef, 0xcd,
 int main(int argc, char **argv);
 f_round F(uint16_t r_0, uint16_t r_1, uint16_t round_num);
 uint16_t G(uint16_t w, uint8_t k_0, uint8_t k_1, uint8_t k_2, uint8_t k_3);
-struct whiten *whitened(uint64_t, uint64_t);
+enc_block whiten(enc_block, enc_key);
 f_round F(uint16_t r_0, uint16_t r_1, int round_num)
 {
         f_round ret;
@@ -187,7 +187,7 @@ uint8_t K(uint8_t x)
         uint8_t index = x % 10;
         return key.u8[index];
 }
-enc_block whitened(enc_block block, enc_key key)
+enc_block whiten(enc_block block, enc_key key)
 {
         return key ^ block;
 }
@@ -235,14 +235,14 @@ enc_block finalize(enc_block block)
         cipher.u16[1] = block.u16[3];
         cipher.u16[2] = block.u16[0];
         cipher.u16[3] = block.u16[1];
-        cipher = whitened(cipher, key);
+        cipher = whiten(cipher, key);
         cout << "Ciphertext: " << cipher << endl;
         return cipher;
 }
 enc_block encrypt_block(enc_block block)
 {
-        block = whitened(block, key);
-        cout << "Whitened block: " << block << endl;
+        block = whiten(block, key);
+        cout << "Whiten block: " << block << endl;
         for (int round_num = 0; round_num < 20; round_num++) {
                 block = round(block, round_num);
         }
@@ -251,8 +251,8 @@ enc_block encrypt_block(enc_block block)
 
 enc_block decrypt_block(enc_block block)
 {
-  block = whitened(block, key);
-  cout << "Whitened block: " << block << endl;
+  block = whiten(block, key);
+  cout << "Whiten block: " << block << endl;
   for (int round_num = 19; round_num >= 0; round_num--) {
     block = round(block, round_num);
   }
@@ -265,4 +265,11 @@ int main(int argc, char **argv)
         generate_table();
         enc_block ciphertext = encrypt_block(text);
         enc_block plaintext = decrypt_block(ciphertext);
+        if(text.u64 == plaintext.u64){
+          cout << "Successfully encrypted and decrypted block" << endl;
+          return 0;
+        } else {
+          cout << "Catastrophic failure of previously unimagined proportions" << endl;
+          return -1;
+        }
 }
