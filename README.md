@@ -22,6 +22,7 @@ is written to an output file.
 
 sample_key.txt: an example input key
 plaintext.txt: an example message to encrypt
+ciphertext.txt: Output for the given samples
 psu_crypt.cpp: the source code.
 
 ### Build and Run
