@@ -3,8 +3,14 @@
 #include <cmath>
 #include <utility>
 #include <cstdint>
+#include <fstream>
+
 using namespace std;
-const int MAX_VAL = 65536;
+
+const int MAX_VAL = 65536; //2^16
+
+//make life easier with unions
+//represent the same region of memory as different data types for convenient access and manipulation during encryption
 typedef struct enc_block {
         union {
                 uint64_t u64;
@@ -21,6 +27,7 @@ typedef struct enc_block {
         }
 } enc_block;
 
+//subkeys generate at beginning of program
 uint8_t subkeys[20][12];
 uint8_t ftable[] = {
         0xa3, 0xd7, 0x09, 0x83, 0xf8, 0x48, 0xf6, 0xf4, 0xb3, 0x21, 0x15, 0x78,
@@ -46,6 +53,8 @@ uint8_t ftable[] = {
         0x5e, 0x6c, 0xa9, 0x13, 0x57, 0x25, 0xb5, 0xe3, 0xbd, 0xa8, 0x3a, 0x01,
         0x05, 0x59, 0x2a, 0x46
 };
+
+//80-bit key
 typedef struct enc_key {
         union {
                 struct {
@@ -85,7 +94,7 @@ typedef struct enc_key {
         }
         friend ostream &operator<<(ostream &out, const enc_key key)
         {
-                for (int i = 0; i < 10; i++) {
+                for (int i = 9; i >= 0; i--) {
                         out << std::setfill('0') << std::setw(2) << std::hex
                             << (int)key.u8[i];
                 }
@@ -126,21 +135,20 @@ typedef struct g_word {
         }
 } g_word;
 
-enc_key key = { .u8 = { 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01, 0xef, 0xcd,
-                        0xab } };
-
+enc_key key;
 int main(int argc, char **argv);
 f_round F(uint16_t r_0, uint16_t r_1, uint16_t round_num);
 uint16_t G(uint16_t w, uint8_t k_0, uint8_t k_1, uint8_t k_2, uint8_t k_3);
 enc_block whiten(enc_block, enc_key);
+
 f_round F(uint16_t r_0, uint16_t r_1, int round_num)
 {
         f_round ret;
-        //12 keys lookup from ftable
+        //12 keys lookup from subkeys
         //k0,k1,k2,k3
         uint16_t t_0 = G(r_0, subkeys[round_num][0], subkeys[round_num][1],
                          subkeys[round_num][2], subkeys[round_num][3]);
-        //k4,k5,k6,7
+        //k4,k5,k6,k7
         uint16_t t_1 = G(r_1, subkeys[round_num][4], subkeys[round_num][5],
                          subkeys[round_num][6], subkeys[round_num][7]);
         ret.lower = (t_0 + 2 * t_1 +
@@ -149,11 +157,6 @@ f_round F(uint16_t r_0, uint16_t r_1, int round_num)
         ret.upper = (2 * t_0 + t_1 +
                      (subkeys[round_num][10] << 8 | subkeys[round_num][11])) %
                     MAX_VAL;
-        cout << "t0: " << std::hex << setw(4) << setfill('0') << t_0
-             << " t1: " << t_1 << endl;
-
-        cout << "f0: " << std::hex << setw(4) << setfill('0') << ret.lower
-             << " f1: " << ret.upper << endl;
 
         return ret;
 }
@@ -169,29 +172,25 @@ uint16_t G(uint16_t w, uint8_t k_0, uint8_t k_1, uint8_t k_2, uint8_t k_3)
         uint8_t g_5 = ftable[g_4 ^ k_2] ^ g_3;
         uint8_t g_6 = ftable[g_5 ^ k_3] ^ g_4;
         g_word ret;
-        cout << "g1: " << std::hex << setw(2) << setfill('0') << (int)g_1;
-        cout << " g2: " << std::hex << setw(2) << setfill('0') << (int)g_2;
-        cout << " g3: " << std::hex << setw(2) << setfill('0') << (int)g_3;
-        cout << " g4: " << std::hex << setw(2) << setfill('0') << (int)g_4;
-        cout << " g5: " << std::hex << setw(2) << setfill('0') << (int)g_5;
-        cout << " g6: " << std::hex << setw(2) << setfill('0') << (int)g_6;
-        cout << endl;
-
         ret.lower = g_6;
         ret.upper = g_5;
         return ret.u16;
 }
+
+//generates subkey
 uint8_t K(uint8_t x)
 {
         key = key << 0x1;
         uint8_t index = x % 10;
         return key.u8[index];
 }
+
 enc_block whiten(enc_block block, enc_key key)
 {
         return key ^ block;
 }
 
+//generate subkeys table
 void generate_table()
 {
         for (uint8_t round = 0; round < 20; round++) {
@@ -201,18 +200,9 @@ void generate_table()
         }
 }
 
+//1 round of encryption
 enc_block round(enc_block block, int round_num)
 {
-        if (round_num > 0)
-                cout << "\n";
-        cout << "Round " << std::dec << round_num << endl;
-        cout << "Keys:";
-        for (int i = 0; i < 12; i++) {
-                cout << " " << std::hex << std::setw(2) << std::setfill('0')
-                     << (int)subkeys[round_num][i];
-        }
-        cout << endl;
-
         f_round fr;
         fr = F(block.u16[0], block.u16[1], round_num);
 
@@ -225,9 +215,10 @@ enc_block round(enc_block block, int round_num)
         block.u16[1] = r3 ^ (fr.u8[3] | (fr.u8[2] << 8));
         block.u16[2] = r0;
         block.u16[3] = r1;
-        cout << "Block: " << block << endl;
         return block;
 }
+
+//finalize by reversing last swap and whitening
 enc_block finalize(enc_block block)
 {
         enc_block cipher;
@@ -236,40 +227,107 @@ enc_block finalize(enc_block block)
         cipher.u16[2] = block.u16[0];
         cipher.u16[3] = block.u16[1];
         cipher = whiten(cipher, key);
-        cout << "Ciphertext: " << cipher << endl;
         return cipher;
 }
+
+//20 rounds to encrypt
 enc_block encrypt_block(enc_block block)
 {
         block = whiten(block, key);
-        cout << "Whiten block: " << block << endl;
         for (int round_num = 0; round_num < 20; round_num++) {
                 block = round(block, round_num);
         }
         return finalize(block);
 }
 
+//switch orders of subkeys to decrypt
 enc_block decrypt_block(enc_block block)
 {
-  block = whiten(block, key);
-  cout << "Whiten block: " << block << endl;
-  for (int round_num = 19; round_num >= 0; round_num--) {
-    block = round(block, round_num);
-  }
-  return finalize(block);
+        block = whiten(block, key);
+        for (int round_num = 19; round_num >= 0; round_num--) {
+                block = round(block, round_num);
+        }
+        return finalize(block);
 }
+
+//ascii hex to int. There may have been a more natural way to do this. Didn't find it.
+int htoi(char val)
+{
+        if (val >= 'a' && val <= 'f')
+                return val - 'a' + 10;
+        else if (val >= 'A' && val <= 'F')
+                return val - 'A' + 10;
+        else if (val >= '0' && val <= '9')
+                return val - '0';
+        else
+                return 0;
+}
+
+//int to ascii hex
+char itoh(uint8_t val)
+{
+        if (val >= 10 && val <= 15)
+                return val + 'a' - 10;
+        else if (val >= 0 && val <= 9)
+                return val + '0';
+        else
+                return 0;
+}
+
 int main(int argc, char **argv)
 {
-        enc_block text = { .u8 = { 0x73, 0x65, 0x63, 0x75, 0x72, 0x69, 0x74,
-                                   0x79 } };
-        generate_table();
-        enc_block ciphertext = encrypt_block(text);
-        enc_block plaintext = decrypt_block(ciphertext);
-        if(text.u64 == plaintext.u64){
-          cout << "Successfully encrypted and decrypted block" << endl;
-          return 0;
-        } else {
-          cout << "Catastrophic failure of previously unimagined proportions" << endl;
-          return -1;
+        if (argc != 3) {
+                cout << "Incorrect number of paramters\n";
+                return -1;
+        }
+        ifstream key_file(argv[1], ios_base::in);
+        if (key_file.is_open()) {
+                char header1, header2;
+                key_file >> header1 >> header2;
+                if(header1 != '0' && header2 != 'x') {
+                  cout << "Key is incorrectly formatted\n";
+                  return -1;
+                }
+                for (int i = 9; i >= 0; i--) {
+                        char c1 = '0', c2 = '0';
+                        if (key_file.good() && key_file.peek() != EOF)
+                                key_file >> c1;
+                        if (key_file.good() && key_file.peek() != EOF)
+                                key_file >> c2;
+                        int test = (htoi(c1) << 4) | htoi(c2);
+                        key.u8[i] = test;
+                }
+                key_file.close();
+        }
+        cout << "Key: " << key << endl;
+
+        ifstream text_file(argv[2], ios_base::in);
+        ofstream ciphertext_file("ciphertext.txt");
+        ciphertext_file << "0x";
+        while (text_file.good() && text_file.peek() != EOF) {
+                enc_block text;
+                for (int i = 0; i < 8; i++) {
+                        if (text_file.good() && text_file.peek() != EOF)
+                                text_file >> text.u8[i];
+                        else
+                                text.u8[i] = 0;
+                }
+                cout << "Block:  " << text << endl;
+
+                generate_table();
+                enc_block ciphertext = encrypt_block(text);
+
+                cout << "Cipher: " << ciphertext << endl;
+                for (int i = 0; i < 8; i++) {
+                        ciphertext_file << (itoh(ciphertext.u8[i] >> 4))
+                                        << itoh(ciphertext.u8[i] & 0xf);
+                }
+
+                enc_block plaintext = decrypt_block(ciphertext);
+                if (text.u64 != plaintext.u64) {
+                        cout << "Catastrophic failure of previously unimagined proportions"
+                             << endl;
+                        return -1;
+                }
         }
 }
