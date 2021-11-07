@@ -28,7 +28,7 @@ psu_crypt.cpp: the source code.
 ### Build and Run
 
 - Build using ``` g++ -o psu_crypt psu_crypt.cpp ```
-- Run with  ``` ./psu_crypt keyfile.txt plaintext.txt
+- Run with  ``` ./psu_crypt keyfile.txt plaintext.txt ```
 
 ### Output
 
